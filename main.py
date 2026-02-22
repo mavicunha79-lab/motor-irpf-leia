@@ -1,19 +1,21 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
+from typing import Optional
 
 app = FastAPI()
 
-# Modelo de dados que a Léia vai enviar
+# Ajustado para aceitar qualquer um dos nomes que a Léia enviar
 class DadosIRRF(BaseModel):
-    rendimento_bruto: float
+    rendimento: Optional[float] = None
+    rendimento_bruto: Optional[float] = None
     deducoes_legais: float = 0.0
 
 def arredondar(valor: float) -> float:
-    # Regra de arredondamento: fixar em 2 casas decimais [cite: 39, 101]
+    """Regra de arredondamento oficial da Contabilidade Real."""
     return round(valor, 2)
 
 def calcular_ir_tabela(base_calculo: float) -> float:
-    # Tabela Progressiva Mensal [cite: 198-203]
+    """Tabela Progressiva Mensal - Lei 15.270/2025."""
     if base_calculo <= 2428.80:
         aliquota, parcela_deduzir = 0.0, 0.0
     elif base_calculo <= 2826.65:
@@ -25,39 +27,43 @@ def calcular_ir_tabela(base_calculo: float) -> float:
     else:
         aliquota, parcela_deduzir = 0.275, 908.73
     
-    # Cálculo: (BC * Alíquota) - Parcela a deduzir [cite: 94]
     ir_t = (base_calculo * aliquota) - parcela_deduzir
     return arredondar(ir_t)
 
 @app.post("/calcular")
 def engine_irrf(dados: DadosIRRF):
-    R = dados.rendimento_bruto
-    DL = dados.deducoes_legais
-    DS = 607.20  # Desconto Simplificado fixo [cite: 122]
+    # Aqui está a correção do Item 4:
+    # Ele verifica qual nome a Léia usou e guarda o valor na letra R
+    R = dados.rendimento if dados.rendimento is not None else dados.rendimento_bruto
+    
+    if R is None:
+        return {"error": "Rendimento não informado ou nome do campo inválido"}
 
-    # Escolhe a maior dedução [cite: 91]
+    DL = dados.deducoes_legais
+    DS = 607.20  # Desconto Simplificado fixo
+
+    # 1. Escolha da Dedução
     D = max(DL, DS)
 
-    # Base de Cálculo [cite: 92]
+    # 2. Base de Cálculo (BC)
     BC = arredondar(R - D)
 
-    # Imposto pela Tabela Progressiva [cite: 93]
+    # 3. Imposto pela Tabela (IRt)
     ir_t = calcular_ir_tabela(BC)
 
-    # Cálculo da Redução Lei nº 15.270/2025 [cite: 15-36]
+    # 4. Redução Lei nº 15.270/2025
     if R <= 5000.00:
         reducao = ir_t
     elif R <= 7350.00:
-        # Redução = 978,62 - (0,133145 * R) [cite: 23]
         A = arredondar(0.133145 * R)
         reducao = arredondar(978.62 - A)
     else:
         reducao = 0.0
 
-    # Limites de segurança da redução [cite: 44-50]
+    # 5. Travas de Segurança
     reducao = max(0.0, min(reducao, ir_t))
 
-    # Resultado Final [cite: 97]
+    # 6. IRRF Final
     irrf_final = arredondar(ir_t - reducao)
 
     return {
