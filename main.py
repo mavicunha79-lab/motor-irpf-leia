@@ -61,6 +61,7 @@ def engine_irrf(dados: DadosIRRF):
 
     return {
         "irrf_final": max(0.0, irrf_final),
+        "assinatura_motor": "CALCULO_EXECUTADO_PELO_MOTOR_DE_PRECISAO_V1.1",
         "detalhes": {
             "rendimento_bruto": R,
             "base_calculo": BC,
