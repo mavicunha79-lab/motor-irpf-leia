@@ -4,18 +4,17 @@ from typing import Optional
 
 app = FastAPI()
 
-# Ajustado para aceitar qualquer um dos nomes que a Léia enviar
+# Esta parte foi blindada para aceitar qualquer nome de campo
 class DadosIRRF(BaseModel):
     rendimento: Optional[float] = None
     rendimento_bruto: Optional[float] = None
+    valor: Optional[float] = None
     deducoes_legais: float = 0.0
 
 def arredondar(valor: float) -> float:
-    """Regra de arredondamento oficial da Contabilidade Real."""
     return round(valor, 2)
 
 def calcular_ir_tabela(base_calculo: float) -> float:
-    """Tabela Progressiva Mensal - Lei 15.270/2025."""
     if base_calculo <= 2428.80:
         aliquota, parcela_deduzir = 0.0, 0.0
     elif base_calculo <= 2826.65:
@@ -30,28 +29,25 @@ def calcular_ir_tabela(base_calculo: float) -> float:
     ir_t = (base_calculo * aliquota) - parcela_deduzir
     return arredondar(ir_t)
 
+@app.get("/")
+def home():
+    return {"status": "Motor da Leia Online", "versao": "1.1"}
+
 @app.post("/calcular")
 def engine_irrf(dados: DadosIRRF):
-    # Aqui está a correção do Item 4:
-    # Ele verifica qual nome a Léia usou e guarda o valor na letra R
-    R = dados.rendimento if dados.rendimento is not None else dados.rendimento_bruto
+    # Procura o valor em qualquer um dos campos possíveis
+    R = dados.rendimento or dados.rendimento_bruto or dados.valor
     
     if R is None:
-        return {"error": "Rendimento não informado ou nome do campo inválido"}
+        return {"error": "Por favor, informe o valor do rendimento."}
 
     DL = dados.deducoes_legais
-    DS = 607.20  # Desconto Simplificado fixo
-
-    # 1. Escolha da Dedução
+    DS = 607.20 
     D = max(DL, DS)
-
-    # 2. Base de Cálculo (BC)
     BC = arredondar(R - D)
-
-    # 3. Imposto pela Tabela (IRt)
     ir_t = calcular_ir_tabela(BC)
 
-    # 4. Redução Lei nº 15.270/2025
+    # Redução Lei nº 15.270/2025
     if R <= 5000.00:
         reducao = ir_t
     elif R <= 7350.00:
@@ -60,16 +56,13 @@ def engine_irrf(dados: DadosIRRF):
     else:
         reducao = 0.0
 
-    # 5. Travas de Segurança
     reducao = max(0.0, min(reducao, ir_t))
-
-    # 6. IRRF Final
     irrf_final = arredondar(ir_t - reducao)
 
     return {
         "irrf_final": max(0.0, irrf_final),
         "detalhes": {
-            "rendimento": R,
+            "rendimento_bruto": R,
             "base_calculo": BC,
             "deducao_utilizada": "Simplificada" if D == DS else "Legais",
             "imposto_tabela": ir_t,
